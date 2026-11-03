@@ -18,6 +18,16 @@ try:
 except ImportError:  # the adapter does not start without discord.py
     discord = None
 
+
+def _discord_or_raise():
+    """discord.py, re-resolved if an earlier import cached ``None`` (hot-mount before
+    the dependency install ran; see ``adapter_slash_auth._discord_or_raise``)."""
+    global discord
+    if discord is None:
+        import discord as resolved
+        discord = resolved
+    return discord
+
 _MAX_RECORDS = 2000
 
 
@@ -105,6 +115,8 @@ class DiscordThreadTitlesMixin:
 
     def _guild_channel_labels(self, channel: Any) -> tuple[str, str | None]:
         """``(chat_name, chat_topic)`` for a guild channel or thread, as a message posted there gets them."""
+        if discord is None:  # imported before discord.py was installed: heal before .Thread
+            _discord_or_raise()
         if isinstance(channel, discord.Thread):
             return self._format_thread_chat_name(channel), self._get_effective_topic(channel, is_thread=True)
         name, guild = getattr(channel, "name", str(channel.id)), getattr(channel, "guild", None)

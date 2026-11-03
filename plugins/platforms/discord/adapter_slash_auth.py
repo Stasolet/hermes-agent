@@ -9,6 +9,25 @@ except ImportError:  # the adapter does not start without discord.py
     discord = None
 
 
+def _discord_or_raise():
+    """discord.py, re-resolved if an earlier import cached ``None``.
+
+    A plugin hot-mount can import this module before the dependency installer has
+    run (first Discord mount on a fresh venv); that import succeeds with
+    ``discord = None`` and ``sys.modules`` keeps it for the process lifetime, so
+    every later slash invocation dies on ``discord.DMChannel`` before the
+    interaction ACK. The adapter imports its siblings absolutely
+    (``plugins.platforms.…``), so all multiplexed profile copies share one
+    poisoned module. The adapter cannot run without discord.py, so a still-missing
+    import here is a real error and is raised instead of swallowed.
+    """
+    global discord
+    if discord is None:
+        import discord as resolved
+        discord = resolved
+    return discord
+
+
 class DiscordSlashAuthMixin:
     _get_parent_channel_id: Callable[[Any], Optional[str]]
     _discord_channel_keys_from_channel: Callable[..., set]
@@ -27,6 +46,8 @@ class DiscordSlashAuthMixin:
         Shared with side-effect-free callers (``/skill`` autocomplete returns [] per keystroke).
         Fail closed on malformed payloads: with an allowlist, a missing channel id/user REJECTS.
         """
+        if discord is None:  # imported before discord.py was installed: heal before .DMChannel
+            _discord_or_raise()
         chan_obj = getattr(interaction, "channel", None)
         in_dm = isinstance(chan_obj, discord.DMChannel) if chan_obj is not None else False
         channel_ids: set = set()
