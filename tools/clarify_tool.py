@@ -92,6 +92,17 @@ def _response_status(qid: str, answers: dict, multi: bool) -> tuple:
     return ("skipped" if qid in answers else "unanswered"), None
 
 
+# A non-submitted end means the timer or delivery failed, never that the user agreed to
+# silence. Without this line the model reads a bare `timed_out` and barrels on, silently
+# self-answering the questions it just asked (observed on live desktop sessions).
+_UNANSWERED_GUIDANCE = (
+    "The wait ended without the user's answers, not with them. Do not continue as if the "
+    "questions were answered: re-ask the unanswered ones as a short prose list and end the "
+    "turn, or proceed only when each unanswered question is low-stakes, naming the default "
+    "you chose."
+)
+
+
 def _result(normalized: list[dict], reply: dict, shown: list[dict] | None = None) -> str:
     """Result JSON from a callback reply ``{"answers": {qid: raw | None}, "outcome", "notice"?}``:
     every response carries ``status`` and ``user_response`` (null unless answered); ``outcome``
@@ -107,8 +118,13 @@ def _result(normalized: list[dict], reply: dict, shown: list[dict] | None = None
         responses.append({"question": entry["question"], "choices_offered": entry["choices_offered"],
                           "status": status, "user_response": value})
     result: dict[str, object] = {"responses": responses, "outcome": reply["outcome"]}
-    if reply.get("notice"):
-        result["notice"] = str(reply["notice"])
+    notice = str(reply.get("notice") or "").strip()
+    if reply.get("outcome") in ("timed_out", "undelivered"):
+        # timed_out is the timer firing while the user may still be mid-answer; undelivered
+        # means the form never reached them. Neither is consent, so both carry the guidance.
+        notice = f"{notice} {_UNANSWERED_GUIDANCE}".strip()
+    if notice:
+        result["notice"] = notice
     return json.dumps(result, ensure_ascii=False)
 
 

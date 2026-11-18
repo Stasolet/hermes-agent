@@ -349,11 +349,46 @@ class TestClarifyBatchDispatch:
 
         result = _ask(cb, [{"question": "One?"}, {"question": "Two?"}])
         assert result["outcome"] == "timed_out"
-        assert result["notice"] == "no reply"
+        assert result["notice"].startswith("no reply")
         assert result["responses"][0]["status"] == "answered"
         assert result["responses"][0]["user_response"] == "kept"
         assert result["responses"][1]["status"] == "unanswered"
         assert result["responses"][1]["user_response"] is None
+
+
+class TestUnansweredOutcomeGuidance:
+    """A wait that ended without a submit is not consent: the result must tell the model."""
+
+    def test_timed_out_without_notice_still_carries_guidance(self):
+        """The desktop batch path replies with no notice; the guidance must not be lost."""
+        def cb(questions):
+            return _reply({}, outcome="timed_out")
+
+        result = _ask(cb, [{"question": "One?"}])
+        assert "re-ask the unanswered ones" in result["notice"]
+
+    def test_timed_out_appends_guidance_after_surface_notice(self):
+        def cb(questions):
+            return _reply({}, outcome="timed_out", notice="[user did not respond within 1m]")
+
+        result = _ask(cb, [{"question": "One?"}])
+        assert result["notice"].startswith("[user did not respond within 1m]")
+        assert "re-ask the unanswered ones" in result["notice"]
+
+    def test_undelivered_gets_guidance_too(self):
+        def cb(questions):
+            return _reply({}, outcome="undelivered", notice="no chat surface")
+
+        result = _ask(cb, [{"question": "One?"}])
+        assert "re-ask the unanswered ones" in result["notice"]
+
+    def test_cancelled_keeps_surface_notice_verbatim(self):
+        """A cancel is a deliberate stop; no guidance is appended to its notice."""
+        def cb(questions):
+            return _reply({}, outcome="cancelled", notice="user stopped the turn")
+
+        result = _ask(cb, [{"question": "One?"}])
+        assert result["notice"] == "user stopped the turn"
 
     def test_batch_skipped_is_not_unanswered(self):
         """A question locked empty is skipped; a missing one is unanswered."""

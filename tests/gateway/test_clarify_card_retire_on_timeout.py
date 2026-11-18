@@ -167,7 +167,10 @@ def test_clarify_tool_batch_route_answers_and_stops_together(adapter_cls, outcom
     assert _asked(adapter) == ["One?"]
     result = json.loads(raw)
     assert result["outcome"] == outcome
-    assert result["notice"] == notice
+    # The surface's notice rides first; the not-consent guidance follows so the model
+    # re-asks in prose instead of silently proceeding on unanswered questions.
+    assert result["notice"].startswith(notice)
+    assert "re-ask the unanswered ones" in result["notice"]
     assert [r["status"] for r in result["responses"]] == ["unanswered", "unanswered"]
     assert [r["user_response"] for r in result["responses"]] == [None, None]
 
